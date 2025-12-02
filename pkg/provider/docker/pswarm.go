@@ -40,6 +40,7 @@ func (p *SwarmProvider) SetDefaults() {
 	p.Endpoint = "unix:///var/run/docker.sock"
 	p.RefreshSeconds = ptypes.Duration(15 * time.Second)
 	p.DefaultRule = DefaultTemplateRule
+	p.LabelPrefix = DefaultLabelPrefix
 }
 
 // Init the provider.
@@ -222,7 +223,7 @@ func (p *SwarmProvider) parseService(ctx context.Context, service swarmtypes.Ser
 		ID:              service.ID,
 		ServiceName:     service.Spec.Annotations.Name,
 		Name:            service.Spec.Annotations.Name,
-		Labels:          service.Spec.Annotations.Labels,
+		Labels:          p.normalizeLabels(service.Spec.Annotations.Labels),
 		NetworkSettings: networkSettings{},
 	}
 

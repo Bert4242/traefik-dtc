@@ -38,6 +38,8 @@ func (p *DynConfBuilder) build(ctx context.Context, containersInspected []docker
 		logger := log.Ctx(ctx).With().Str("container", containerName).Logger()
 		ctxContainer := logger.WithContext(ctx)
 
+		container.Labels = p.normalizeLabels(container.Labels)
+
 		if !p.keepContainer(ctxContainer, container) {
 			continue
 		}
