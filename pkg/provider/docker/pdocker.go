@@ -36,6 +36,7 @@ func (p *Provider) SetDefaults() {
 	p.ExposedByDefault = true
 	p.Endpoint = "unix:///var/run/docker.sock"
 	p.DefaultRule = DefaultTemplateRule
+	p.LabelPrefix = DefaultLabelPrefix
 }
 
 // Init the provider.
@@ -170,6 +171,8 @@ func (p *Provider) listContainers(ctx context.Context, dockerClient client.Conta
 		if len(dData.Name) == 0 {
 			continue
 		}
+
+		dData.Labels = p.normalizeLabels(dData.Labels)
 
 		extraConf, err := p.extractDockerLabels(dData)
 		if err != nil {

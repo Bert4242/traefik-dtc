@@ -11,6 +11,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSharedNormalizeLabels(t *testing.T) {
+	t.Parallel()
+
+	shared := Shared{LabelPrefix: "custom."}
+
+	labels := map[string]string{
+		DefaultLabelPrefix + "enable": "false",
+		"custom.enable":               "true",
+		"custom.docker.network":       "mynet",
+		"unrelated":                   "value",
+	}
+
+	normalized := shared.normalizeLabels(labels)
+
+	assert.Equal(t, map[string]string{
+		"traefik.enable":         "true",
+		"traefik.docker.network": "mynet",
+		"unrelated":              "value",
+	}, normalized)
+}
+
+func TestSharedNormalizeLabelsKeepDefault(t *testing.T) {
+	t.Parallel()
+
+	shared := Shared{LabelPrefix: "custom.", KeepDefaultLabelPrefixLabelAsDefault: true}
+
+	labels := map[string]string{
+		DefaultLabelPrefix + "enable": "false",
+		"custom.enable":               "true",
+		"custom.docker.network":       "mynet",
+	}
+
+	normalized := shared.normalizeLabels(labels)
+
+	assert.Equal(t, map[string]string{
+		"traefik.enable":         "true",
+		"traefik.docker.network": "mynet",
+	}, normalized)
+}
+
+func TestExtractDockerLabelsWithCustomPrefix(t *testing.T) {
+	t.Parallel()
+
+	shared := Shared{ExposedByDefault: true, Network: "default", LabelPrefix: "custom."}
+	container := dockerData{Labels: map[string]string{"custom.enable": "false", "custom.docker.network": "customNet"}}
+
+	conf, err := shared.extractDockerLabels(container)
+	require.NoError(t, err)
+
+	assert.False(t, conf.Enable)
+	assert.Equal(t, "customNet", conf.Network)
+}
+
 func Test_getPort_docker(t *testing.T) {
 	testCases := []struct {
 		desc       string

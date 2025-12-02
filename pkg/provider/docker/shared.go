@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"text/template"
 	"time"
 
@@ -25,18 +26,62 @@ import (
 
 // DefaultTemplateRule The default template for the default rule.
 const DefaultTemplateRule = "Host(`{{ normalize .Name }}`)"
+const DefaultLabelPrefix = "traefik."
 
 type Shared struct {
-	ExposedByDefault   bool   `description:"Expose containers by default." json:"exposedByDefault,omitempty" toml:"exposedByDefault,omitempty" yaml:"exposedByDefault,omitempty" export:"true"`
-	Constraints        string `description:"Constraints is an expression that Traefik matches against the container's labels to determine whether to create any route for that container." json:"constraints,omitempty" toml:"constraints,omitempty" yaml:"constraints,omitempty" export:"true"`
-	AllowEmptyServices bool   `description:"Disregards the Docker containers health checks with respect to the creation or removal of the corresponding services." json:"allowEmptyServices,omitempty" toml:"allowEmptyServices,omitempty" yaml:"allowEmptyServices,omitempty" export:"true"`
-	Network            string `description:"Default Docker network used." json:"network,omitempty" toml:"network,omitempty" yaml:"network,omitempty" export:"true"`
-	UseBindPortIP      bool   `description:"Use the ip address from the bound port, rather than from the inner network." json:"useBindPortIP,omitempty" toml:"useBindPortIP,omitempty" yaml:"useBindPortIP,omitempty" export:"true"`
+	ExposedByDefault                     bool   `description:"Expose containers by default." json:"exposedByDefault,omitempty" toml:"exposedByDefault,omitempty" yaml:"exposedByDefault,omitempty" export:"true"`
+	Constraints                          string `description:"Constraints is an expression that Traefik matches against the container's labels to determine whether to create any route for that container." json:"constraints,omitempty" toml:"constraints,omitempty" yaml:"constraints,omitempty" export:"true"`
+	AllowEmptyServices                   bool   `description:"Disregards the Docker containers health checks with respect to the creation or removal of the corresponding services." json:"allowEmptyServices,omitempty" toml:"allowEmptyServices,omitempty" yaml:"allowEmptyServices,omitempty" export:"true"`
+	Network                              string `description:"Default Docker network used." json:"network,omitempty" toml:"network,omitempty" yaml:"network,omitempty" export:"true"`
+	UseBindPortIP                        bool   `description:"Use the ip address from the bound port, rather than from the inner network." json:"useBindPortIP,omitempty" toml:"useBindPortIP,omitempty" yaml:"useBindPortIP,omitempty" export:"true"`
+	LabelPrefix                          string `description:"Prefix for Docker labels." json:"labelPrefix,omitempty" toml:"labelPrefix,omitempty" yaml:"labelPrefix,omitempty" export:"true"`
+	KeepDefaultLabelPrefixLabelAsDefault bool   `description:"Keep default label prefix when using a custom label prefix." json:"keepDefaultLabelPrefixLabelAsDefault,omitempty" toml:"keepDefaultLabelPrefixLabelAsDefault,omitempty" yaml:"keepDefaultLabelPrefixLabelAsDefault,omitempty" export:"true"`
 
 	Watch       bool   `description:"Watch Docker events." json:"watch,omitempty" toml:"watch,omitempty" yaml:"watch,omitempty" export:"true"`
 	DefaultRule string `description:"Default rule." json:"defaultRule,omitempty" toml:"defaultRule,omitempty" yaml:"defaultRule,omitempty"`
 
 	defaultRuleTpl *template.Template
+}
+
+func (p *Shared) getLabelPrefix() string {
+	if p.LabelPrefix == "" {
+		return DefaultLabelPrefix
+	}
+
+	return p.LabelPrefix
+}
+
+func (p *Shared) normalizeLabels(labels map[string]string) map[string]string {
+	if labels == nil {
+		return nil
+	}
+
+	prefix := p.getLabelPrefix()
+	if prefix == DefaultLabelPrefix {
+		return labels
+	}
+
+	normalized := make(map[string]string, len(labels))
+	for key, value := range labels {
+		switch {
+		case strings.HasPrefix(key, DefaultLabelPrefix):
+			if !p.KeepDefaultLabelPrefixLabelAsDefault {
+				continue
+			}
+
+			normalized[key] = value
+		case !strings.HasPrefix(key, prefix):
+			normalized[key] = value
+		}
+	}
+
+	for key, value := range labels {
+		if strings.HasPrefix(key, prefix) {
+			normalized[DefaultLabelPrefix+strings.TrimPrefix(key, prefix)] = value
+		}
+	}
+
+	return normalized
 }
 
 func inspectContainers(ctx context.Context, dockerClient client.ContainerAPIClient, containerID string) dockerData {
