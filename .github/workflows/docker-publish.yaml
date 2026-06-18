@@ -1,0 +1,131 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches:
+      - my-v3.7
+      - my-master
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  CGO_ENABLED: 0
+
+jobs:
+  build-webui:
+    uses: ./.github/workflows/template-webui.yaml
+
+  build-binaries:
+    runs-on: ubuntu-latest
+    needs: build-webui
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: '.go-version'
+          check-latest: true
+
+      - name: Download webui artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webui.tar.gz
+
+      - name: Untar webui
+        run: |
+          tar xvf webui.tar.gz
+          rm webui.tar.gz
+
+      - name: Go generate
+        run: go generate
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+          DATE: ${{ github.event.head_commit.timestamp }}
+        run: |
+          mkdir -p dist/${{ matrix.goos }}/${{ matrix.goarch }}
+          go build -ldflags "-s -w \
+            -X github.com/traefik/traefik/v3/pkg/version.Version=${VERSION} \
+            -X github.com/traefik/traefik/v3/pkg/version.Codename=cheddar \
+            -X github.com/traefik/traefik/v3/pkg/version.BuildDate=${DATE}" \
+            -installsuffix nocgo \
+            -o ./dist/${{ matrix.goos }}/${{ matrix.goarch }}/traefik \
+            ./cmd/traefik
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: traefik-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/${{ matrix.goos }}/${{ matrix.goarch }}/traefik
+          retention-days: 1
+
+  push-image:
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download amd64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: traefik-linux-amd64
+          path: dist/linux/amd64/
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: traefik-linux-arm64
+          path: dist/linux/arm64/
+
+      - name: Make binaries executable
+        run: chmod +x dist/linux/amd64/traefik dist/linux/arm64/traefik
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5730f04ce74e5fa6461b3e926e9f023a9f62494 # v3.10.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbea8a986b716451ce1ce07c7f2f # v5.7.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref_name == 'my-v3.7' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
