@@ -172,8 +172,6 @@ func (p *Provider) listContainers(ctx context.Context, dockerClient client.Conta
 			continue
 		}
 
-		dData.Labels = p.normalizeLabels(dData.Labels)
-
 		extraConf, err := p.extractDockerLabels(dData)
 		if err != nil {
 			log.Ctx(ctx).Error().Err(err).Msgf("Skip container %s", getServiceName(dData))
